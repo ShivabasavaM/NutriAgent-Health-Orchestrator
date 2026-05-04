@@ -34,7 +34,6 @@ class FitbitClient:
         if not self.ensure_active_token(): return 0
         
         date_str = datetime.now().strftime("%Y-%m-%d")
-        # Note: Sleep uses API v1.2
         url = f"https://api.fitbit.com/1.2/user/-/sleep/date/{date_str}.json"
         
         print(f"\n💤 [Fitbit] Fetching sleep for {date_str}...")
@@ -42,7 +41,7 @@ class FitbitClient:
         
         if response.status_code == 200:
             data = response.json()
-            # Fitbit returns a summary object
+
             summary = data.get("summary", {})
             total_minutes = summary.get("totalMinutesAsleep", 0)
             
@@ -59,8 +58,7 @@ class FitbitClient:
     def ensure_active_token(self):
         """Checks expiry and refreshes if needed."""
         if not self.tokens: return False
-        
-        # Buffer of 5 minutes
+
         if time.time() > self.tokens.get("expires_at", 0) - 300:
             print("🔄 [Fitbit] Token expired. Refreshing...")
             return self.refresh_token()
@@ -92,7 +90,7 @@ class FitbitClient:
             response = requests.get(url, headers=self._get_headers())
             
             if response.status_code == 200:
-                cal = response.json().get("summary", {}).get("activityCalories", 0)
+                cal = response.json().get("summary", {}).get("caloriesOut", 0)
                 print(f"✅ [Fitbit] Active Calories Burned: {cal}")
                 return cal
             elif response.status_code == 401:

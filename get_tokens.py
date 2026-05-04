@@ -1,8 +1,6 @@
 import os
 import base64
 import requests
-import hashlib
-import secrets
 import time
 from urllib.parse import urlencode
 from dotenv import load_dotenv
@@ -12,70 +10,54 @@ load_dotenv()
 
 CLIENT_ID = os.getenv("FITBIT_CLIENT_ID")
 CLIENT_SECRET = os.getenv("FITBIT_CLIENT_SECRET")
-REDIRECT_URI = "http://localhost:8080"
-# TOKEN_FILE = "fitbit_tokens.json"
-
-# def save_tokens(tokens):
-#     # Add an expiry timestamp (now + seconds)
-#     tokens["expires_at"] = time.time() + tokens["expires_in"]
-#     with open(TOKEN_FILE, "w") as f:
-#         json.dump(tokens, f, indent=4)
-#     print(f"\n💾 Saved fresh tokens to {TOKEN_FILE}")
-
-def generate_tokens():
-
-    database.init_db()
-    if not CLIENT_ID or not CLIENT_SECRET:
-        print("❌ Error: Missing CLIENT_ID/SECRET in .env")
-        return
-
-    # 1. PKCE Auth
-    code_verifier = secrets.token_urlsafe(64)
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode()).digest()
-    ).decode().rstrip("=")
-
+REDIRECT_URI = "http://127.0.0.1:8080" 
+def get_auth_url():
     params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "scope": "activity nutrition sleep profile heartrate",
-        "redirect_uri": REDIRECT_URI
+        "scope": "activity sleep nutrition weight",
+        "redirect_uri": REDIRECT_URI,
+        "expires_in": 2592000 
     }
-    auth_url = f"https://www.fitbit.com/oauth2/authorize?{urlencode(params)}"
+    return f"https://www.fitbit.com/oauth2/authorize?{urlencode(params)}"
 
-    print("\n🔗 CLICK THIS LINK TO AUTHORIZE:")
-    print(auth_url)
+def exchange_code(code):
+    url = "https://api.fitbit.com/oauth2/token"
+    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    b64_auth = base64.b64encode(auth_str.encode()).decode()
     
-    callback_url = input("\n📋 Paste the full localhost URL here:\n> ").strip()
-
-    try:
-        from urllib.parse import urlparse, parse_qs
-        query = parse_qs(urlparse(callback_url).query)
-        auth_code = query["code"][0]
-    except:
-        print("❌ Invalid URL.")
-        return
-
-    # 2. Exchange for Tokens
-    token_url = "https://api.fitbit.com/oauth2/token"
-    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-    
-    headers = {"Authorization": f"Basic {auth_header}", "Content-Type": "application/x-www-form-urlencoded"}
+    headers = {
+        "Authorization": f"Basic {b64_auth}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
     data = {
-        "client_id": CLIENT_ID, "grant_type": "authorization_code",
-        "redirect_uri": REDIRECT_URI, "code": auth_code, "code_verifier": code_verifier
+        "client_id": CLIENT_ID,
+        "grant_type": "authorization_code",
+        "redirect_uri": REDIRECT_URI,
+        "code": code
     }
-
-    response = requests.post(token_url, headers=headers, data=data)
+    
+    response = requests.post(url, headers=headers, data=data)
     if response.status_code == 200:
-        tokens=response.json()
-        expires_at = time.time() + tokens["expires_in"]
-        database.update_token(tokens["access_token"],tokens["refresh_token"], expires_at)
-        print("SUCCESS! Tokens saved to the Database. ")
+        tokens = response.json()
+        expires_at = time.time() + tokens.get("expires_in", 28800)
+        
+        database.update_tokens(tokens["access_token"], tokens["refresh_token"], expires_at)
+        print("\n✅ SUCCESS: Tokens saved to Cloud PostgreSQL Database!")
     else:
-        print(f"❌ Failed: {response.text}")
+        print(f"\n❌ Error exchanging code: {response.text}")
 
 if __name__ == "__main__":
-    generate_tokens()
+    print("\n=== Fitbit OAuth2 Cloud Setup ===")
+    print("1. Click this link to authorize:")
+    print(get_auth_url())
+    print("\n2. You will be redirected to a page that might say 'Site cannot be reached'. This is normal.")
+    print("3. Look at the URL. It will look like: http://127.0.0.1:8080/?code=XXXXX")
+    print("4. Copy ONLY the code (the part after '?code=' and before any '#').")
+    
+    code = input("\nPaste the code here: ").strip()
+    
+    if code.endswith("#_=_"):
+        code = code[:-4]
+        
+    exchange_code(code)

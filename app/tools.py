@@ -1,113 +1,99 @@
 import os
-import requests
-from dotenv import load_dotenv
+import psycopg2.extras
 from langchain_core.tools import tool
 from app.fitbit_client import FitbitClient
 from app import database
-import sqlite3
 
 fitbit = FitbitClient()
 
-load_dotenv()
-
-# def find_healthy_food(lat: float, lng: float):
-#     """
-#     Searches for RESTAURANTS (not furniture stores) nearby using Google Places API (New).
-#     """
-#     api_key = os.getenv("GOOGLE_API_KEY")
-#     url = "https://places.googleapis.com/v1/places:searchNearby"
-    
-#     headers = {
-#         "Content-Type": "application/json",
-#         "X-Goog-Api-Key": api_key,
-#         # We only ask for the specific fields we need to save data/latency
-#         "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.googleMapsUri,places.types,places.rating"
-#     }
-    
-#     payload = {
-#         "includedTypes": ["restaurant", "indian_restaurant", "vegetarian_restaurant"],
-#         "excludedTypes": ["furniture_store", "lodging"], # Explicitly block IKEA/Hotels if needed
-#         "maxResultCount": 3,
-#         "locationRestriction": {
-#             "circle": {
-#                 "center": {
-#                     "latitude": lat,
-#                     "longitude": lng
-#                 },
-#                 "radius": 1000.0 # Look within 1 km (Tight radius for "Nearby")
-#             }
-#         },
-#         "rankPreference": "DISTANCE" # Sort by closest first
-#     }
-    
-#     try:
-#         response = requests.post(url, json=payload, headers=headers)
-#         data = response.json()
-        
-#         places = data.get("places", [])
-#         if not places:
-#             return "No restaurants found within 1km. Try sending a new location?"
-            
-#         # Format the top result
-#         top_place = places[0]
-#         name = top_place.get("displayName", {}).get("text", "Unknown Place")
-#         maps_link = top_place.get("googleMapsUri", "No Link")
-#         rating = top_place.get("rating", "N/A")
-        
-#         return f"{name} ({rating}⭐) - {maps_link}"
-        
-#     except Exception as e:
-#         print(f"Error searching Google Maps: {e}")
-#         return "Food search failed (Check Console)."
 @tool
-def get_health_status():
-    """Use this tool to fetch the user's daily calorie goal and the live calories they have burned today from Fitbit."""
-    conn = sqlite3.connect(database.DB_PATH)
+def log_food(food_name: str, calories: int):
+    """Logs food eaten by the user and automatically deletes data older than 3 days."""
+    conn = database.get_connection()
+    if not conn: return "Database Error."
     cursor = conn.cursor()
-    cursor.execute("SELECT daily_calorie_target FROM users WHERE id = 1")
+    
+    cursor.execute(
+        "INSERT INTO daily_logs (date, user_id, food_name, calories_in) VALUES (CURRENT_DATE, 1, %s, %s)", 
+        (food_name, calories)
+    )
+    
+    cursor.execute("DELETE FROM daily_logs WHERE user_id = 1 AND date < CURRENT_DATE - INTERVAL '3 days'")
+    
+    conn.commit()
+    cursor.close()
+    database.release_connection(conn)
+    return f"Successfully logged {food_name} ({calories} kcal). History pruned to last 3 days."
+
+@tool
+def reset_profile():
+    """Wipes the user's profile and food history completely."""
+    conn = database.get_connection()
+    if not conn: return "Database Error."
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET weight = NULL, goal = NULL, daily_calorie_target = NULL WHERE id = 1")
+    cursor.execute("DELETE FROM daily_logs WHERE user_id = 1") 
+    conn.commit()
+    cursor.close()
+    database.release_connection(conn)
+    return "DATABASE WIPED. Tell the user their profile is reset and immediately ask for their new weight and goal to restart onboarding."
+
+@tool
+def get_historical_summary(days: int):
+    """Fetches the average daily calories the user has eaten over the last X days."""
+    conn = database.get_connection()
+    if not conn: return "Database Error."
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        SELECT AVG(daily_total) as avg_eaten FROM (
+            SELECT SUM(calories_in) as daily_total
+            FROM daily_logs
+            WHERE user_id = 1 AND date >= CURRENT_DATE - INTERVAL '%s days'
+            GROUP BY date
+        ) subquery
+    ''', (days,))
     row = cursor.fetchone()
     cursor.close()
+    database.release_connection(conn)
+    
+    avg_eaten = round(row['avg_eaten']) if row and row['avg_eaten'] else 0
+    return f"Data context: Over the last {days} days, the user ate an average of {avg_eaten} kcal per day."
 
-    target = row[0] if row in row[0] else 2000
+@tool
+def update_profile(weight: float, target_calories: int):
+    """Updates the user's weight and daily calorie target."""
+    if not (1000 <= target_calories <= 4000):
+        return f"ERROR: {target_calories} is an unsafe/unrealistic target. Please recalculate properly between 1000 and 4000 kcal."
+        
+    conn = database.get_connection()
+    if not conn: return "Database Error."
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET weight = %s, daily_calorie_target = %s WHERE id = 1", (weight, target_calories))
+    conn.commit()
+    cursor.close()
+    database.release_connection(conn) 
+    return f"Profile updated. Weight: {weight}kg, Goal: {target_calories} kcal."
+
+@tool
+def get_health_status():
+    """Fetches user's daily calorie goal, logged food, and Fitbit biometrics (Calories & Sleep)."""
+    conn = database.get_connection()
+    if not conn: return "Database Error."
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) # Need RealDictCursor here
+    
+    cursor.execute("SELECT daily_calorie_target FROM users WHERE id = 1")
+    row = cursor.fetchone()
+    target = row['daily_calorie_target'] if row and row['daily_calorie_target'] else 2000
+    
+    cursor.execute("SELECT COALESCE(SUM(calories_in), 0) as total_eaten FROM daily_logs WHERE user_id = 1 AND date = CURRENT_DATE")
+    eaten_row = cursor.fetchone()
+    eaten = eaten_row['total_eaten'] if eaten_row else 0
+    
+    cursor.close()
+    database.release_connection(conn)
 
     burned = fitbit.get_calories_today()
-
-    return f"User Target:{target} calories. Fitbit Calories Burned Today: {burned}."
-
-def send_whatsapp(message: str):
-    """
-    Mock Sender for Streamlit Testing.
-    Instead of calling Twilio, we just print.
-    """
-    if not message: return
+    sleep_mins = fitbit.get_sleep_today()
+    sleep_hours = round(sleep_mins / 60, 1)
     
-    print(f"\n[📱 MOCK WHATSAPP] {message}\n")
-    # """Sends a message via Twilio (Safe Mode)."""
-    # if not message or message.strip() == "":
-    #     return
-        
-    # # --- SAFETY CUT ---
-    # # WhatsApp Limit is 1600. We cut at 1500 to be safe.
-    # if len(message) > 1500:
-    #     print(f"[!] Warning: Message too long ({len(message)} chars). Truncating.")
-    #     message = message[:1500] + "...(message cut)"
-    # # ------------------
-    
-    # from twilio.rest import Client
-    
-    # account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-    # auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-    # from_whatsapp = os.getenv("TWILIO_WHATSAPP_FROM") 
-    # to_whatsapp = os.getenv("MY_PHONE_NUMBER")        
-    
-    # client = Client(account_sid, auth_token)
-    
-    # try:
-    #     client.messages.create(
-    #         body=message,
-    #         from_=from_whatsapp,
-    #         to=to_whatsapp
-    #     )
-    #     print(f"[*] WhatsApp Sent: {message[:30]}...")
-    # except Exception as e:
-    #     print(f"[!] Twilio Error: {e}")
+    return f"Goal: {target} kcal. Eaten: {eaten} kcal. Burned (Fitbit): {burned} kcal. Sleep Last Night: {sleep_hours} hours."

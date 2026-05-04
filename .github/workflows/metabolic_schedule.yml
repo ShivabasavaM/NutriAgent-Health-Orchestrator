@@ -1,0 +1,49 @@
+name: Metabolic Health Coach Schedule
+
+on:
+  schedule:
+    # 8:00 AM IST is 02:30 UTC
+    - cron: '30 2 * * *'
+    # 2:00 PM IST is 08:30 UTC
+    - cron: '30 8 * * *'
+    # 9:00 PM IST is 15:30 UTC
+    - cron: '30 15 * * *'
+    # 11:00 PM IST is 17:30 UTC
+    - cron: '30 17 * * *'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.14' 
+
+      - name: Install Dependencies
+        run: |
+          pip install requests psycopg2-binary
+          
+      - name: Determine Meal Type & Run Nudge
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FITBIT_CLIENT_ID: ${{ secrets.FITBIT_CLIENT_ID }}
+          FITBIT_CLIENT_SECRET: ${{ secrets.FITBIT_CLIENT_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          HOUR=$(date +'%H')
+          if [ "$HOUR" == "02" ]; then
+            python metabolic_nudge.py breakfast
+          elif [ "$HOUR" == "08" ]; then
+            python metabolic_nudge.py lunch
+          elif [ "$HOUR" == "15" ]; then
+            python metabolic_nudge.py dinner
+          elif [ "$HOUR" == "17" ]; then
+            python metabolic_nudge.py night
+          else
+            python metabolic_nudge.py general
+          fi
