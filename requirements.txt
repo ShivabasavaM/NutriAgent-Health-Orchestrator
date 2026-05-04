@@ -13,6 +13,8 @@ psycopg-pool
 pyTelegramBotAPI==4.15.2
 fitbit
 requests
+fastapi
+uvicorn
 
 # Environment
 python-dotenv
