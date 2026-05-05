@@ -1,4 +1,6 @@
 import os
+import psycopg
+import psycopg2.extras
 from typing import Annotated
 from typing_extensions import TypedDict
 from dotenv import load_dotenv
@@ -23,16 +25,20 @@ tools = [get_health_status, log_food, update_profile, reset_profile, get_histori
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 llm_with_tools = llm.bind_tools(tools)
 
+
 def get_db_context():
     """Fetches real-time DB state to inject into the prompt."""
     conn = database.get_connection()
     if not conn: return None, ""
     
-    cursor = conn.cursor()
+    # 2. Add cursor_factory here to allow dictionary-style access
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
     cursor.execute("SELECT weight, daily_calorie_target FROM users WHERE id = 1")
     user = cursor.fetchone()
     
     history_text = "No recent food history."
+    # Now user['daily_calorie_target'] will work perfectly!
     if user and user['daily_calorie_target']:
         cursor.execute("""
             SELECT date, SUM(calories_in) as total 
@@ -41,10 +47,11 @@ def get_db_context():
         """)
         history = cursor.fetchall()
         if history:
+            # history[0]['date'] will also work now!
             history_text = ", ".join([f"{h['date']}: {h['total']}kcal" for h in history])
             
     cursor.close()
-    database.release_connection(conn)
+    database.release_connection(conn) # 3. Use release_connection, not conn.close()
     return user, history_text
 
 def chatbot(state: State):
@@ -89,6 +96,10 @@ graph_builder.add_edge("tools", "chatbot")
 
 checkpoint_pool = ConnectionPool(conninfo=DB_URL)
 
+with psycopg.connect(DB_URL, autocommit=True) as conn:
+    temp_memory = PostgresSaver(conn)
+    temp_memory.setup()
+    print("✅ LangGraph Memory Tables Initialized (Autocommit).")
+
 memory = PostgresSaver(checkpoint_pool)
-memory.setup()
 app_graph = graph_builder.compile(checkpointer=memory)

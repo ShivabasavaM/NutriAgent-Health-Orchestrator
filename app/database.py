@@ -15,10 +15,20 @@ except Exception as e:
     db_pool = None
 
 def get_connection():
-    """Fetches a connection from the pool."""
-    if db_pool:
+    """Fetches a connection and ensures it is still alive."""
+    global db_pool
+    if not db_pool:
+        return None
+    
+    try:
+        conn = db_pool.getconn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return conn
+    except Exception:
+        if conn:
+            db_pool.putconn(conn, close=True)
         return db_pool.getconn()
-    return None
 
 def release_connection(conn):
     """Returns the connection to the pool."""
@@ -39,10 +49,15 @@ def init_db():
         height REAL,
         weight REAL,
         goal TEXT,
-        daily_calorie_target INTEGER,
-        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- ⏱️ Added for Token Guard
+        daily_calorie_target INTEGER
     )
     """)
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        print("✅ Migration: added 'last_active' column to users table.")
+    except Exception:
+        pass
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS daily_logs (

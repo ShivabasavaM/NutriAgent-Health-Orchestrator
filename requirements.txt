@@ -6,7 +6,7 @@ langchain-google-genai
 langgraph
 langgraph-checkpoint-postgres
 psycopg2-binary==2.9.9
-psycopg
+psycopg[binary]
 psycopg-pool
 fitbit
 requests
