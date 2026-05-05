@@ -57,7 +57,7 @@ The system is designed for scalability, reliability, and persistent state manage
 - **Deployment:** Dockerized container for consistent environments
 - **Interface:** Telegram bot for real-time interaction
 
-> *(Add architecture diagram here)*
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/ea1a4643-3c86-403c-85ab-dd19516b6db1" />
 
 ---
 
@@ -126,11 +126,9 @@ The system is designed for scalability, reliability, and persistent state manage
 
 ---
 
-## 🎥 System Visualization
+## 🎥 Visualization
 
-> *(Add Manim video link here when ready)*
-
-[Watch System Flow](#)
+https://github.com/user-attachments/assets/ac735568-f229-4e5f-9258-6516b63720c2
 
 ---
 
