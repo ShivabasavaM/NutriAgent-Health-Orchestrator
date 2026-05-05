@@ -57,7 +57,7 @@ The system is designed for scalability, reliability, and persistent state manage
 - **Deployment:** Dockerized container for consistent environments
 - **Interface:** Telegram bot for real-time interaction
 
-<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/ea1a4643-3c86-403c-85ab-dd19516b6db1" />
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/de84511c-e70e-441b-ad64-8f94fe0c6d63" />
 
 ---
 
@@ -119,16 +119,12 @@ The system is designed for scalability, reliability, and persistent state manage
 
 ## 🖥️ Demo
 
-> *(Add screenshots or GIFs here)*
+https://github.com/user-attachments/assets/ac735568-f229-4e5f-9258-6516b63720c2
 
 - AI interpreting Fitbit metrics and suggesting actionable insights  
 - Real-time food logging via Telegram interface  
 
----
 
-## 🎥 Visualization
-
-https://github.com/user-attachments/assets/ac735568-f229-4e5f-9258-6516b63720c2
 
 ---
 
