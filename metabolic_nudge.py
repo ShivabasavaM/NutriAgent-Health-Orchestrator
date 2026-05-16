@@ -2,6 +2,7 @@ import os
 import sys
 import requests
 from dotenv import load_dotenv
+from psycopg2.extras import RealDictCursor  # 💡 Added for dictionary-style lookups
 
 from app.fitbit_client import FitbitClient
 from app import database
@@ -17,13 +18,16 @@ def get_daily_stats():
     conn = database.get_connection()
     if not conn: return None
     
-    cursor = conn.cursor()
+    # 💡 Configured cursor to return row data as dictionaries
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
     cursor.execute("SELECT daily_calorie_target FROM users WHERE id = 1")
     target_row = cursor.fetchone()
     target = target_row['daily_calorie_target'] if (target_row and target_row['daily_calorie_target'] is not None) else 2000
 
     cursor.execute("SELECT COALESCE(SUM(calories_in), 0) as eaten FROM daily_logs WHERE user_id = 1 AND date = CURRENT_DATE")
     eaten_row = cursor.fetchone()
+    
     cursor.execute("SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_active))/3600 as hours_inactive FROM users WHERE id = 1")
     time_row = cursor.fetchone()
     
@@ -32,10 +36,11 @@ def get_daily_stats():
         cursor.close()
         database.release_connection(conn)
         return None
+        
     eaten = eaten_row['eaten'] if eaten_row else 0
     
     cursor.close()
-    conn.close()
+    database.release_connection(conn)  # 💡 Fixed to safely return the connection to the pool
 
     burned = fitbit.get_calories_today()
     remaining = (target + burned) - eaten
@@ -74,7 +79,7 @@ def generate_meal_nudge(stats, meal_type):
 def send_telegram_message(text):
     """Sends the message via Telegram API."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     requests.post(url, json=payload)
 
 if __name__ == "__main__":
@@ -88,9 +93,9 @@ if __name__ == "__main__":
         final_text = (
             f"🧬 *Metabolic Health Coach*\n\n"
             f"{message}\n\n"
-            f"📊 Eaten: {stats['eaten']} kcal\n"
-            f"🔥 Burned: {stats['burned']} kcal\n"
-            f"🎯 Left: {stats['remaining']} kcal"
+            f"📊 *Eaten:* {stats['eaten']} kcal\n"
+            f"🔥 *Burned:* {stats['burned']} kcal\n"
+            f"🎯 *Left:* {stats['remaining']} kcal"
         )
         
         send_telegram_message(final_text)
